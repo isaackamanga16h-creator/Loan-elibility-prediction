@@ -1,4 +1,4 @@
-#importing libraries
+# importing libraries
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,26 +11,43 @@ import streamlit.components.v1 as components
 # PAGE CONFIGURATION & STYLING
 # ==========================================
 st.set_page_config(
-    page_title="Loan Eligibility Predictor", page_icon="🏦", layout="wide"
+    page_title="Loan Eligibility Predictor",
+    page_icon="🏦",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.markdown(
-    "<h1 style='color: white; font-size: 34px;'>🏦 Loan Eligibility Prediction System with SHAP Explainability</h1>",
-    unsafe_allow_html=True,
-)
+# Custom CSS for clean mobile and desktop UI rendering
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+    .sub-text {
+        font-size: 1rem;
+        margin-bottom: 1.5rem;
+        opacity: 0.85;
+    }
+    .shap-container {
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-st.write(
-    "Fill in applicant details in the sidebar to generate real-time loan decision predictions and SHAP explainability plots."
-)
+st.markdown('<div class="main-header">🏦 Loan Eligibility Prediction System</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-text">Fill in applicant details in the sidebar to generate real-time loan decision predictions and SHAP explainability plots.</div>', unsafe_allow_html=True)
 
 
-# 1. Load trained model and scaler
+# 1. Load trained model and scaler safely
 @st.cache_resource
 def load_artifacts():
     model = joblib.load("best_model.pkl")
     scaler = joblib.load("scaler.pkl")
-
-    # Initialize SHAP TreeExplainer for Random Forest / XGBoost model
     explainer = shap.TreeExplainer(model)
     return model, scaler, explainer
 
@@ -46,7 +63,6 @@ except Exception as e:
 # ==========================================
 # 2. SIDEBAR PROFILE INPUTS
 # ==========================================
-
 st.sidebar.image("https://img.icons8.com/color/96/bank-building.png", width=64)
 st.sidebar.header("Applicant Profile Input")
 
@@ -58,7 +74,7 @@ with st.sidebar.expander("👤 Demographics & Profile", expanded=True):
     self_employed = st.selectbox("Self Employed", ["No", "Yes"])
 
 with st.sidebar.expander("💰 Financials & Loan Details", expanded=True):
-    credit_history = st.sidebar.selectbox(
+    credit_history = st.selectbox(
         "Credit History Clear?",
         [1.0, 0.0],
         format_func=lambda x: "Yes (1.0)" if x == 1.0 else "No (0.0)",
@@ -79,7 +95,7 @@ with st.sidebar.expander("💰 Financials & Loan Details", expanded=True):
         "Loan Term (Months)", [360, 180, 240, 120, 300, 480, 84, 60, 36, 12]
     )
 
-# 3. Preprocessing
+# 3. Feature Preprocessing
 total_income = applicant_income + coapplicant_income
 loan_amount_log = np.log1p(loan_amount)
 total_income_log = np.log1p(total_income)
@@ -114,14 +130,23 @@ scale_cols = ["Loan_Amount_Term", "LoanAmount_Log", "Total_Income_Log"]
 input_df[scale_cols] = scaler.transform(input_df[scale_cols])
 
 
-# Function to safely render SHAP Force Plot in Streamlit
+# Helper function to render HTML force plots safely across devices
 def st_shap(plot, height=None):
-    shap_html = f"<head>{shap.getjs()}</head><body style='background-color:#ffffff;'>{plot.html()}</body>"
-    components.html(shap_html, height=height)
+    shap_html = f"<head>{shap.getjs()}</head><body style='background-color:transparent;'>{plot.html()}</body>"
+    components.html(shap_html, height=height, scrolling=True)
 
 
-# 4. Model Prediction & Explainability Outputs
-if st.button("Predict Eligibility", type="primary"):
+# ==========================================
+# 4. PREDICTION & EXPLAINABILITY EXECUTION
+# ==========================================
+if "has_predicted" not in st.session_state:
+    st.session_state.has_predicted = False
+
+predict_btn = st.button("Predict Eligibility", type="primary", use_container_width=True)
+
+if predict_btn or st.session_state.has_predicted:
+    st.session_state.has_predicted = True
+
     prediction = model.predict(input_df)[0]
     prediction_prob = model.predict_proba(input_df)[0][1]
 
@@ -134,11 +159,12 @@ if st.button("Predict Eligibility", type="primary"):
                 f"✅ **ELIGIBLE FOR LOAN**\n\nApproval Probability: **{prediction_prob * 100:.2f}%**"
             )
         else:
+            rejected_prob = (1 - prediction_prob) * 100
             st.error(
-                f"❌ **NOT ELIGIBLE FOR LOAN**\n\nRejected Probability: **{prediction_prob * 100:.2f}%**"
+                f"❌ **NOT ELIGIBLE FOR LOAN**\n\nRejection Probability: **{rejected_prob:.2f}%**"
             )
 
-    # Calculate local SHAP values for the specific applicant input
+    # Calculate local SHAP values
     shap_values = explainer(input_df)
 
     if len(shap_values.values.shape) == 3:
@@ -149,27 +175,13 @@ if st.button("Predict Eligibility", type="primary"):
         base_val = shap_values.base_values[0]
 
     with col2:
-        st.markdown(
-            '<div class="shap-plot-container">', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<h3 class="plot-header">SHAP Feature Waterfall Plot</h3>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            '<p class="plot-caption">Feature impact on output prediction score</p>',
-            unsafe_allow_html=True,
-        )
-      
-        st.markdown(
-                "🔴 **Red:** Pushing toward **Eligible**  \n🔵 **Blue:** Pushing toward **Not Eligible**  "
-                
-            )
-        # High-Resolution canvas with vertical spacing to prevent text crowding
-        fig, ax = plt.subplots(figsize=(8.5, 6), facecolor="#ffffff")
-        ax.set_facecolor("#ffffff")
+        st.subheader("SHAP Feature Waterfall Plot")
+        st.caption("Feature impact on output prediction score")
+        st.markdown("🔴 **Red:** Pushing toward **Eligible** | 🔵 **Blue:** Pushing toward **Not Eligible**")
 
-        # Render Waterfall plot
+        # Create plot with flexible proportions for mobile screens
+        fig, ax = plt.subplots(figsize=(7.5, 5))
+        
         shap.plots.waterfall(
             shap.Explanation(
                 values=vals,
@@ -180,34 +192,21 @@ if st.button("Predict Eligibility", type="primary"):
             show=False,
         )
 
-        # Style text objects individually for maximum legibility
-        for text in ax.texts:
-            text.set_color("#0f172a")
-            text.set_fontweight("bold")
-            text.set_fontsize(10)
-
-        # Formatting y-axis tick labels (Feature names on left side)
-        ax.tick_params(axis="y", colors="#0f172a", labelsize=10.5)
-        ax.tick_params(axis="x", colors="#475569", labelsize=9.5)
-
-        for spine in ax.spines.values():
-            spine.set_color("#cbd5e1")
-
-        plt.subplots_adjust(left=0.35, right=0.95, top=0.92, bottom=0.1)
+        plt.subplots_adjust(left=0.35, right=0.95, top=0.9, bottom=0.15)
         st.pyplot(fig, use_container_width=True)
+        
+        # Memory Cleanup: Critical for Mobile Browsers
         plt.close(fig)
-        st.markdown("</div>", unsafe_allow_html=True)
+        plt.close("all")
 
     st.markdown("---")
     st.subheader("Individual Applicant SHAP Force Plot")
-    st.write(
-        "Features pushing the prediction output relative to baseline expectation."
-    )
+    st.write("Features pushing the prediction output relative to baseline expectation.")
 
     force_plot = shap.force_plot(
         base_val, vals, input_df.iloc[0], matplotlib=False
     )
-    st_shap(force_plot, height=140)
+    st_shap(force_plot, height=160)
 
 else:
-    st.info("👈 Adjust applicant parameters and click **Predict Eligibility**.")
+    st.info("👈 Adjust applicant parameters in the sidebar and click **Predict Eligibility**.")
