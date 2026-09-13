@@ -76,7 +76,7 @@ with col_icon:
     )
 with col_title:
     st.markdown(
-        "<h3 style='margin:0; padding:0; font-size:20px; color:#1e3a8a; font-weight:700;'>Applicant Profile</h3>",
+        "<h3 style='margin:0; padding:0; font-size:20px; color:#64748b; font-weight:700;'>Applicant Profile</h3>",
         unsafe_allow_html=True,
     )
 
@@ -184,8 +184,9 @@ if st.session_state.predicted:
     )
 
     with col2:
-        st.subheader("Overview Feature Impact")
-        st.caption("Aggregated impact on loan approval decision")
+        st.subheader("Overall Feature Impact")
+        st.caption(" 🔵positive Pushing toward Eligible")
+        st.caption("🔴negative Pushing toward Not Eligible")
         
         # Overview bar chart
         st.bar_chart(
