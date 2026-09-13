@@ -1,11 +1,10 @@
-#importing libraries
+# importing libraries
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
 import streamlit as st
-import streamlit.components.v1 as components
 
 # ==========================================
 # PAGE CONFIGURATION & STYLING
@@ -14,13 +13,25 @@ st.set_page_config(
     page_title="Loan Eligibility Predictor", page_icon="🏦", layout="wide"
 )
 
+# Custom CSS for legibility and mobile responsiveness
 st.markdown(
-    "<h1 style='color: white; font-size: 34px;'>🏦 Loan Eligibility Prediction System with SHAP Explainability</h1>",
+    """
+    <style>
+    .main-header { font-size: 28px; font-weight: bold; color: #1E293B; margin-bottom: 5px; }
+    .sub-text { font-size: 15px; color: #475569; margin-bottom: 20px; }
+    .shap-legend { background-color: #F8FAFC; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 14px; }
+    </style>
+""",
     unsafe_allow_html=True,
 )
 
-st.write(
-    "Fill in applicant details in the sidebar to generate real-time loan decision predictions and SHAP explainability plots."
+st.markdown(
+    "<h1 class='main-header'>🏦 Loan Eligibility Prediction System with SHAP Explainability</h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<p class='sub-text'>Fill in applicant details in the sidebar to generate real-time loan decision predictions and SHAP explainability plots.</p>",
+    unsafe_allow_html=True,
 )
 
 
@@ -58,7 +69,7 @@ with st.sidebar.expander("👤 Demographics & Profile", expanded=True):
     self_employed = st.selectbox("Self Employed", ["No", "Yes"])
 
 with st.sidebar.expander("💰 Financials & Loan Details", expanded=True):
-    credit_history = st.sidebar.selectbox(
+    credit_history = st.selectbox(
         "Credit History Clear?",
         [1.0, 0.0],
         format_func=lambda x: "Yes (1.0)" if x == 1.0 else "No (0.0)",
@@ -114,14 +125,16 @@ scale_cols = ["Loan_Amount_Term", "LoanAmount_Log", "Total_Income_Log"]
 input_df[scale_cols] = scaler.transform(input_df[scale_cols])
 
 
-# Function to safely render SHAP Force Plot in Streamlit
-def st_shap(plot, height=None):
-    shap_html = f"<head>{shap.getjs()}</head><body style='background-color:#ffffff;'>{plot.html()}</body>"
-    components.html(shap_html, height=height)
+# Maintain state for prediction triggering
+if "predicted" not in st.session_state:
+    st.session_state.predicted = False
+
+if st.sidebar.button("Predict Eligibility", type="primary"):
+    st.session_state.predicted = True
 
 
 # 4. Model Prediction & Explainability Outputs
-if st.button("Predict Eligibility", type="primary"):
+if st.session_state.predicted:
     prediction = model.predict(input_df)[0]
     prediction_prob = model.predict_proba(input_df)[0][1]
 
@@ -135,7 +148,7 @@ if st.button("Predict Eligibility", type="primary"):
             )
         else:
             st.error(
-                f"❌ **NOT ELIGIBLE FOR LOAN**\n\nRejected Probability: **{prediction_prob * 100:.2f}%**"
+                f"❌ **NOT ELIGIBLE FOR LOAN**\n\nApproval Probability: **{prediction_prob * 100:.2f}%**"
             )
 
     # Calculate local SHAP values for the specific applicant input
@@ -149,24 +162,14 @@ if st.button("Predict Eligibility", type="primary"):
         base_val = shap_values.base_values[0]
 
     with col2:
+        st.subheader("SHAP Feature Waterfall Plot")
+        st.caption("Feature impact on output prediction score")
         st.markdown(
-            '<div class="shap-plot-container">', unsafe_allow_html=True
-        )
-        st.markdown(
-            '<h3 class="plot-header">SHAP Feature Waterfall Plot</h3>',
+            "<div class='shap-legend'>🔴 <b>Red:</b> Pushing toward <b>Eligible</b> &nbsp;&nbsp;|&nbsp;&nbsp; 🔵 <b>Blue:</b> Pushing toward <b>Not Eligible</b></div>",
             unsafe_allow_html=True,
         )
-        st.markdown(
-            '<p class="plot-caption">Feature impact on output prediction score</p>',
-            unsafe_allow_html=True,
-        )
-      
-        st.markdown(
-                "🔴 **Red:** Pushing toward **Eligible**  \n🔵 **Blue:** Pushing toward **Not Eligible**  "
-                
-            )
-        # High-Resolution canvas with vertical spacing to prevent text crowding
-        fig, ax = plt.subplots(figsize=(8.5, 6), facecolor="#ffffff")
+
+        fig, ax = plt.subplots(figsize=(8, 5.5), facecolor="#ffffff")
         ax.set_facecolor("#ffffff")
 
         # Render Waterfall plot
@@ -184,19 +187,19 @@ if st.button("Predict Eligibility", type="primary"):
         for text in ax.texts:
             text.set_color("#0f172a")
             text.set_fontweight("bold")
-            text.set_fontsize(10)
+            text.set_fontsize(9.5)
 
-        # Formatting y-axis tick labels (Feature names on left side)
-        ax.tick_params(axis="y", colors="#0f172a", labelsize=10.5)
-        ax.tick_params(axis="x", colors="#475569", labelsize=9.5)
+        ax.tick_params(axis="y", colors="#0f172a", labelsize=10)
+        ax.tick_params(axis="x", colors="#475569", labelsize=9)
 
         for spine in ax.spines.values():
             spine.set_color("#cbd5e1")
 
         plt.subplots_adjust(left=0.35, right=0.95, top=0.92, bottom=0.1)
         st.pyplot(fig, use_container_width=True)
+
+        # Clean up figures
         plt.close(fig)
-        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("Individual Applicant SHAP Force Plot")
@@ -204,10 +207,21 @@ if st.button("Predict Eligibility", type="primary"):
         "Features pushing the prediction output relative to baseline expectation."
     )
 
-    force_plot = shap.force_plot(
-        base_val, vals, input_df.iloc[0], matplotlib=False
+    # Render Force Plot via Matplotlib (Prevents JavaScript crashes)
+    fig_force, ax_force = plt.subplots(figsize=(10, 3), facecolor="#ffffff")
+    shap.force_plot(
+        base_val,
+        vals,
+        input_df.iloc[0],
+        matplotlib=True,
+        show=False,
     )
-    st_shap(force_plot, height=140)
+    plt.tight_layout()
+    st.pyplot(fig_force, use_container_width=True)
+    plt.close(fig_force)
+    plt.close("all")
 
 else:
-    st.info("👈 Adjust applicant parameters and click **Predict Eligibility**.")
+    st.info(
+        "👈 Adjust applicant parameters in the sidebar and click **Predict Eligibility**."
+    )
